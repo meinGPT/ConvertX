@@ -1,0 +1,8 @@
+# Use the existing ConvertX image and add our changes
+FROM ghcr.io/c4illin/convertx:latest
+
+# Copy our modified source files directly
+COPY src/pages/api.tsx /app/src/pages/api.tsx
+COPY src/index.tsx /app/src/index.tsx
+
+# The base image already has all runtime dependencies and proper entrypoint

@@ -7,6 +7,7 @@ import "./helpers/printVersions";
 import db from "./db/db";
 import { Jobs } from "./db/types";
 import { AUTO_DELETE_EVERY_N_HOURS, WEBROOT } from "./helpers/env";
+import { api } from "./pages/api";
 import { chooseConverter } from "./pages/chooseConverter";
 import { convert } from "./pages/convert";
 import { deleteFile } from "./pages/deleteFile";
@@ -37,6 +38,7 @@ const app = new Elysia({
     }),
   )
   .use(user)
+  .use(api)
   .use(root)
   .use(upload)
   .use(history)
