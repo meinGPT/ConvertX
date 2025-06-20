@@ -110,8 +110,7 @@ Convert files to a target format. Files can be provided either as base64-encoded
     }
   ],
   "convertTo": "png",
-  "converterName": "imagemagick", // optional - specify converter to use
-  "baseUrl": "https://api.example.com" // optional - for generating download URLs
+  "converterName": "imagemagick" // optional - specify converter to use
 }
 ```
 
@@ -139,7 +138,7 @@ Convert files to a target format. Files can be provided either as base64-encoded
 }
 ```
 
-Note: The `downloadUrl` field is only included if you provide a `baseUrl` in the request.
+Note: Download URLs are automatically generated based on the server's URL.
 
 **Error Response (400):**
 ```json
@@ -227,8 +226,7 @@ curl -u "email@example.com:password" \
   -X POST -H "Content-Type: application/json" \
   -d '{
     "files": [{"name": "test.jpg", "content": "base64-content"}],
-    "convertTo": "png",
-    "baseUrl": "https://api.example.com"
+    "convertTo": "png"
   }' \
   http://localhost:3000/api/convert
 
@@ -237,8 +235,7 @@ curl -u "email@example.com:password" \
   -X POST -H "Content-Type: application/json" \
   -d '{
     "files": [{"name": "document.pdf", "url": "https://example.com/file.pdf"}],
-    "convertTo": "docx",
-    "baseUrl": "https://api.example.com"
+    "convertTo": "docx"
   }' \
   http://localhost:3000/api/convert
 
@@ -351,7 +348,7 @@ You can mix both methods in a single request:
 ## Notes
 
 - Files can be provided as base64-encoded content or URLs to download
-- When providing a `baseUrl`, the API will return download URLs for converted files
+- Download URLs are automatically generated in the response for all successful conversions
 - The API processes files synchronously, so large files may take time
 - Conversion jobs are tracked in the database and can be queried later
 - All file paths are sanitized for security

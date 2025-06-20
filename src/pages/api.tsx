@@ -129,13 +129,17 @@ export const api = new Elysia({ prefix: "/api" })
   })
   .post(
     "/convert",
-    async ({ body, jwt, cookie: { auth }, headers, set }) => {
+    async ({ body, jwt, cookie: { auth }, headers, set, request }) => {
       const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
       if (!user) {
         return { error: "Unauthorized" };
       }
 
-      const { files, convertTo, converterName, baseUrl } = body;
+      const { files, convertTo, converterName } = body;
+      
+      // Automatically determine base URL from request
+      const url = new URL(request.url);
+      const baseUrl = `${url.protocol}//${url.host}`;
 
       if (!files || !Array.isArray(files) || files.length === 0) {
         set.status = 400;
@@ -247,9 +251,7 @@ export const api = new Elysia({ prefix: "/api" })
           );
 
           if (conversionResult === "Done") {
-            const downloadUrl = baseUrl 
-              ? `${baseUrl}/api/download/${parseInt(user.id)}/${jobIdValue}/${newFileName}`
-              : undefined;
+            const downloadUrl = `${baseUrl}/api/download/${parseInt(user.id)}/${jobIdValue}/${newFileName}`;
             results.push({
               fileName,
               status: "completed",
@@ -297,7 +299,6 @@ export const api = new Elysia({ prefix: "/api" })
         ),
         convertTo: t.String(),
         converterName: t.Optional(t.String()),
-        baseUrl: t.Optional(t.String()), // Base URL for generating download links
       }),
     },
   )
