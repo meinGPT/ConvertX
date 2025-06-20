@@ -44,6 +44,27 @@ async function authenticateUser({ jwt, cookie: { auth }, headers, set }: any) {
 
 export const api = new Elysia({ prefix: "/api" })
   .use(userService)
+  // Add error handling
+  .onError(({ code, error, set, request }) => {
+    console.error(`[API Error] ${request.method} ${request.url}:`, {
+      code,
+      message: error.message,
+      stack: error.stack,
+    });
+    
+    if (code === "NOT_FOUND") {
+      set.status = 404;
+      return { error: "Endpoint not found", path: new URL(request.url).pathname };
+    }
+    
+    if (code === "VALIDATION") {
+      set.status = 400;
+      return { error: "Invalid request", message: error.message };
+    }
+    
+    set.status = 500;
+    return { error: "Internal server error", message: error.message };
+  })
   .get("/test", () => {
     return { message: "API is working!" };
   })
@@ -130,12 +151,16 @@ export const api = new Elysia({ prefix: "/api" })
   .post(
     "/convert",
     async ({ body, jwt, cookie: { auth }, headers, set, request }) => {
+      console.log(`[API Convert] Request from ${request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'}`);
+      
       const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
       if (!user) {
+        console.log("[API Convert] Authentication failed");
         return { error: "Unauthorized" };
       }
 
       const { files, convertTo, converterName } = body;
+      console.log(`[API Convert] User ${user.id} converting ${files.length} files to ${convertTo}${converterName ? ` using ${converterName}` : ''}`);
       
       // Automatically determine base URL from request
       const url = new URL(request.url);
@@ -155,14 +180,14 @@ export const api = new Elysia({ prefix: "/api" })
       const now = new Date().toISOString();
       const userId = parseInt(user.id);
 
-      console.log("Creating job with:", { userId, status: "pending", numFiles: files.length, dateCreated: now });
+      console.log("[API Convert] Creating job for user", userId);
 
       try {
         db.query(
           "INSERT INTO jobs (user_id, status, num_files, date_created) VALUES (?1, ?2, ?3, ?4)",
         ).run(userId, "pending", files.length, now);
       } catch (error) {
-        console.error("Error inserting job:", error);
+        console.error("[API Convert] Database error creating job:", error);
         set.status = 500;
         return { error: "Failed to create job: " + error };
       }
@@ -170,6 +195,7 @@ export const api = new Elysia({ prefix: "/api" })
       // Get the last inserted row ID
       const jobId = db.query("SELECT last_insert_rowid() as id").get() as { id: number };
       const jobIdValue = jobId.id;
+      console.log(`[API Convert] Created job ${jobIdValue} for user ${userId}`);
 
       const userUploadsDir = `${uploadsDir}${parseInt(user.id)}/${jobIdValue}/`;
       const userOutputDir = `${outputDir}${parseInt(user.id)}/${jobIdValue}/`;
@@ -199,14 +225,16 @@ export const api = new Elysia({ prefix: "/api" })
       // Process files sequentially for better error handling
       for (const file of files) {
         const fileName = sanitize(file.name);
+        console.log(`[API Convert] Processing file: ${file.name}`);
 
         if (!fileName) {
           const error = "Invalid file name";
+          console.error(`[API Convert] Invalid filename: ${file.name}`);
           results.push({ fileName: file.name, status: "error", error });
           try {
             query.run(jobIdValue, file.name, "", error);
           } catch (e) {
-            console.error("Error inserting file_names:", e, { jobIdValue, fileName: file.name });
+            console.error("[API Convert] Database error inserting failed file:", e);
             throw e;
           }
           continue;
@@ -217,17 +245,19 @@ export const api = new Elysia({ prefix: "/api" })
           
           // Handle URL or base64 content
           if (file.url) {
-            // Download file from URL
+            console.log(`[API Convert] Downloading file from URL: ${file.url}`);
             const response = await fetch(file.url);
             if (!response.ok) {
               throw new Error(`Failed to download file: ${response.statusText}`);
             }
             const arrayBuffer = await response.arrayBuffer();
             await Bun.write(filePath, arrayBuffer);
+            console.log(`[API Convert] Downloaded ${arrayBuffer.byteLength} bytes`);
           } else if (file.content) {
-            // Decode base64 content
+            console.log(`[API Convert] Processing base64 content`);
             const buffer = Buffer.from(file.content, "base64");
             await Bun.write(filePath, buffer);
+            console.log(`[API Convert] Decoded ${buffer.length} bytes`);
           } else {
             throw new Error("No file content or URL provided");
           }
@@ -241,6 +271,7 @@ export const api = new Elysia({ prefix: "/api" })
           );
           const targetPath = `${userOutputDir}${newFileName}`;
 
+          console.log(`[API Convert] Converting ${fileName} from ${fileType} to ${normalizedConvertTo}`);
           const conversionResult = await mainConverter(
             filePath,
             fileType,
@@ -251,6 +282,7 @@ export const api = new Elysia({ prefix: "/api" })
           );
 
           if (conversionResult === "Done") {
+            console.log(`[API Convert] Successfully converted ${fileName}`);
             const downloadUrl = `${baseUrl}/api/download/${parseInt(user.id)}/${jobIdValue}/${newFileName}`;
             results.push({
               fileName,
@@ -260,6 +292,7 @@ export const api = new Elysia({ prefix: "/api" })
             });
             query.run(jobIdValue, fileName, newFileName, "Done");
           } else {
+            console.error(`[API Convert] Conversion failed for ${fileName}:`, conversionResult);
             results.push({
               fileName,
               status: "error",
@@ -269,6 +302,7 @@ export const api = new Elysia({ prefix: "/api" })
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          console.error(`[API Convert] Error processing ${fileName}:`, error);
           results.push({ fileName, status: "error", error: errorMessage });
           query.run(jobIdValue, fileName, "", errorMessage);
         }
@@ -279,6 +313,8 @@ export const api = new Elysia({ prefix: "/api" })
       const jobStatus = completedFiles === files.length ? "completed" : "partial";
 
       db.query("UPDATE jobs SET status = ? WHERE id = ?").run(jobStatus, jobIdValue);
+      
+      console.log(`[API Convert] Job ${jobIdValue} completed with status: ${jobStatus} (${completedFiles}/${files.length} files)`);
 
       return {
         jobId: jobIdValue,
@@ -326,15 +362,18 @@ export const api = new Elysia({ prefix: "/api" })
     };
   })
   .get("/download/:userId/:jobId/:fileName", async ({ jwt, cookie: { auth }, headers, set, params }) => {
+    const { userId, jobId, fileName } = params;
+    console.log(`[API Download] Request for file: user=${userId}, job=${jobId}, file=${fileName}`);
+    
     const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
     if (!user) {
+      console.log("[API Download] Authentication failed");
       return { error: "Unauthorized" };
     }
-
-    const { userId, jobId, fileName } = params;
     
     // Verify user has access to this file
     if (parseInt(user.id) !== parseInt(userId)) {
+      console.error(`[API Download] Access denied: user ${user.id} tried to access files of user ${userId}`);
       set.status = 403;
       return { error: "Access denied" };
     }
@@ -346,6 +385,7 @@ export const api = new Elysia({ prefix: "/api" })
       .get(jobId, parseInt(userId));
 
     if (!job) {
+      console.error(`[API Download] Job ${jobId} not found for user ${userId}`);
       set.status = 404;
       return { error: "Job not found" };
     }
@@ -356,6 +396,7 @@ export const api = new Elysia({ prefix: "/api" })
       .get(jobId, fileName);
 
     if (!fileRecord) {
+      console.error(`[API Download] File ${fileName} not found in job ${jobId}`);
       set.status = 404;
       return { error: "File not found" };
     }
@@ -364,6 +405,7 @@ export const api = new Elysia({ prefix: "/api" })
     const file = Bun.file(filePath);
 
     if (!(await file.exists())) {
+      console.error(`[API Download] File not found on disk: ${filePath}`);
       set.status = 404;
       return { error: "File not found on disk" };
     }
@@ -372,5 +414,23 @@ export const api = new Elysia({ prefix: "/api" })
     set.headers["Content-Type"] = file.type || "application/octet-stream";
     set.headers["Content-Disposition"] = `attachment; filename="${fileName}"`;
 
+    console.log(`[API Download] Serving file: ${filePath} (${file.size} bytes)`);
     return file;
+  })
+  // Catch-all for unmatched API routes
+  .all("/*", ({ request, set }) => {
+    console.error(`[API] Unmatched route: ${request.method} ${request.url}`);
+    set.status = 404;
+    return { 
+      error: "API endpoint not found", 
+      method: request.method,
+      path: new URL(request.url).pathname,
+      availableEndpoints: [
+        "GET /api/formats",
+        "GET /api/formats/:from", 
+        "POST /api/convert",
+        "GET /api/job/:jobId",
+        "GET /api/download/:userId/:jobId/:fileName"
+      ]
+    };
   });
