@@ -94,7 +94,7 @@ Get available conversion targets for a specific input format.
 
 ### POST /api/convert
 
-Convert files to a target format.
+Convert files to a target format. Files can be provided either as base64-encoded content or URLs.
 
 **Request Body:**
 ```json
@@ -102,30 +102,44 @@ Convert files to a target format.
   "files": [
     {
       "name": "example.jpg",
-      "content": "base64-encoded-file-content"
+      "content": "base64-encoded-file-content" // Option 1: base64 content
+    },
+    {
+      "name": "document.pdf", 
+      "url": "https://example.com/document.pdf" // Option 2: URL to download
     }
   ],
   "convertTo": "png",
-  "converterName": "imagemagick" // optional
+  "converterName": "imagemagick", // optional - specify converter to use
+  "baseUrl": "https://api.example.com" // optional - for generating download URLs
 }
 ```
 
 **Response:**
 ```json
 {
-  "jobId": "uuid-of-conversion-job",
+  "jobId": 123,
   "status": "completed", // or "partial"
-  "totalFiles": 1,
-  "completedFiles": 1,
+  "totalFiles": 2,
+  "completedFiles": 2,
   "results": [
     {
       "fileName": "example.jpg",
       "status": "completed",
-      "outputFileName": "example.png"
+      "outputFileName": "example.png",
+      "downloadUrl": "https://api.example.com/api/download/1/123/example.png"
+    },
+    {
+      "fileName": "document.pdf",
+      "status": "completed", 
+      "outputFileName": "document.png",
+      "downloadUrl": "https://api.example.com/api/download/1/123/document.png"
     }
   ]
 }
 ```
+
+Note: The `downloadUrl` field is only included if you provide a `baseUrl` in the request.
 
 **Error Response (400):**
 ```json
@@ -139,21 +153,22 @@ Convert files to a target format.
 Get status and details of a conversion job.
 
 **Parameters:**
-- `jobId` - UUID of the conversion job
+- `jobId` - ID of the conversion job
 
 **Response:**
 ```json
 {
   "job": {
-    "id": "uuid",
-    "user_id": "user-id",
+    "id": 123,
+    "user_id": 1,
     "status": "completed",
     "num_files": 1,
     "date_created": "2024-01-01T12:00:00.000Z"
   },
   "files": [
     {
-      "job_id": "uuid",
+      "id": 1,
+      "job_id": 123,
       "file_name": "example.jpg",
       "output_file_name": "example.png",
       "status": "Done"
@@ -168,6 +183,24 @@ Get status and details of a conversion job.
   "error": "Job not found"
 }
 ```
+
+### GET /api/download/:userId/:jobId/:fileName
+
+Download a converted file.
+
+**Parameters:**
+- `userId` - ID of the user who owns the file
+- `jobId` - ID of the conversion job
+- `fileName` - Name of the output file
+
+**Response:**
+- Binary file download with appropriate Content-Type header
+- Content-Disposition header for proper filename
+
+**Error Responses:**
+- `401` - Unauthorized
+- `403` - Access denied (file belongs to different user)
+- `404` - Job or file not found
 
 ## Error Codes
 
@@ -189,14 +222,30 @@ curl -u "email@example.com:password" \
 curl -u "email@example.com:password" \
   http://localhost:3000/api/formats/jpg
 
-# Convert a file
+# Convert a file from base64
 curl -u "email@example.com:password" \
   -X POST -H "Content-Type: application/json" \
   -d '{
     "files": [{"name": "test.jpg", "content": "base64-content"}],
-    "convertTo": "png"
+    "convertTo": "png",
+    "baseUrl": "https://api.example.com"
   }' \
   http://localhost:3000/api/convert
+
+# Convert a file from URL
+curl -u "email@example.com:password" \
+  -X POST -H "Content-Type: application/json" \
+  -d '{
+    "files": [{"name": "document.pdf", "url": "https://example.com/file.pdf"}],
+    "convertTo": "docx",
+    "baseUrl": "https://api.example.com"
+  }' \
+  http://localhost:3000/api/convert
+
+# Download converted file
+curl -u "email@example.com:password" \
+  -o converted.png \
+  http://localhost:3000/api/download/1/123/test.png
 
 # Check job status
 curl -u "email@example.com:password" \
@@ -280,9 +329,29 @@ curl -u "email@example.com:password" \
   http://localhost:3000/api/convert
 ```
 
+## File Input Methods
+
+The API supports two methods for providing files:
+
+1. **Base64 Content**: Include the file content as a base64-encoded string in the `content` field
+2. **URL Download**: Provide a URL in the `url` field, and the API will download the file
+
+You can mix both methods in a single request:
+
+```json
+{
+  "files": [
+    {"name": "local.jpg", "content": "base64-content"},
+    {"name": "remote.pdf", "url": "https://example.com/document.pdf"}
+  ],
+  "convertTo": "png"
+}
+```
+
 ## Notes
 
-- Files must be base64 encoded in the request body
+- Files can be provided as base64-encoded content or URLs to download
+- When providing a `baseUrl`, the API will return download URLs for converted files
 - The API processes files synchronously, so large files may take time
 - Conversion jobs are tracked in the database and can be queried later
 - All file paths are sanitized for security

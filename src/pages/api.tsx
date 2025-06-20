@@ -135,7 +135,7 @@ export const api = new Elysia({ prefix: "/api" })
         return { error: "Unauthorized" };
       }
 
-      const { files, convertTo, converterName } = body;
+      const { files, convertTo, converterName, baseUrl } = body;
 
       if (!files || !Array.isArray(files) || files.length === 0) {
         set.status = 400;
@@ -183,6 +183,7 @@ export const api = new Elysia({ prefix: "/api" })
         fileName: string;
         status: string;
         outputFileName?: string;
+        downloadUrl?: string;
         error?: string;
       }> = [];
 
@@ -194,10 +195,9 @@ export const api = new Elysia({ prefix: "/api" })
       // Process files sequentially for better error handling
       for (const file of files) {
         const fileName = sanitize(file.name);
-        const fileContent = file.content; // Assuming base64 encoded content
 
-        if (!fileName || !fileContent) {
-          const error = "Invalid file data";
+        if (!fileName) {
+          const error = "Invalid file name";
           results.push({ fileName: file.name, status: "error", error });
           try {
             query.run(jobIdValue, file.name, "", error);
@@ -209,10 +209,24 @@ export const api = new Elysia({ prefix: "/api" })
         }
 
         try {
-          // Decode and save the file
-          const buffer = Buffer.from(fileContent, "base64");
-          const filePath = `${userUploadsDir}${fileName}`;
-          await Bun.write(filePath, buffer);
+          let filePath = `${userUploadsDir}${fileName}`;
+          
+          // Handle URL or base64 content
+          if (file.url) {
+            // Download file from URL
+            const response = await fetch(file.url);
+            if (!response.ok) {
+              throw new Error(`Failed to download file: ${response.statusText}`);
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            await Bun.write(filePath, arrayBuffer);
+          } else if (file.content) {
+            // Decode base64 content
+            const buffer = Buffer.from(file.content, "base64");
+            await Bun.write(filePath, buffer);
+          } else {
+            throw new Error("No file content or URL provided");
+          }
 
           const fileTypeOrig = fileName.split(".").pop() ?? "";
           const fileType = normalizeFiletype(fileTypeOrig);
@@ -233,10 +247,14 @@ export const api = new Elysia({ prefix: "/api" })
           );
 
           if (conversionResult === "Done") {
+            const downloadUrl = baseUrl 
+              ? `${baseUrl}/api/download/${parseInt(user.id)}/${jobIdValue}/${newFileName}`
+              : undefined;
             results.push({
               fileName,
               status: "completed",
               outputFileName: newFileName,
+              downloadUrl,
             });
             query.run(jobIdValue, fileName, newFileName, "Done");
           } else {
@@ -273,11 +291,13 @@ export const api = new Elysia({ prefix: "/api" })
         files: t.Array(
           t.Object({
             name: t.String(),
-            content: t.String(), // base64 encoded file content
+            content: t.Optional(t.String()), // base64 encoded file content
+            url: t.Optional(t.String()), // URL to download file from
           }),
         ),
         convertTo: t.String(),
         converterName: t.Optional(t.String()),
+        baseUrl: t.Optional(t.String()), // Base URL for generating download links
       }),
     },
   )
@@ -303,4 +323,53 @@ export const api = new Elysia({ prefix: "/api" })
       job,
       files,
     };
+  })
+  .get("/download/:userId/:jobId/:fileName", async ({ jwt, cookie: { auth }, headers, set, params }) => {
+    const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
+    if (!user) {
+      return { error: "Unauthorized" };
+    }
+
+    const { userId, jobId, fileName } = params;
+    
+    // Verify user has access to this file
+    if (parseInt(user.id) !== parseInt(userId)) {
+      set.status = 403;
+      return { error: "Access denied" };
+    }
+
+    // Verify job belongs to user
+    const job = db
+      .query("SELECT * FROM jobs WHERE id = ? AND user_id = ?")
+      .as(Jobs)
+      .get(jobId, parseInt(userId));
+
+    if (!job) {
+      set.status = 404;
+      return { error: "Job not found" };
+    }
+
+    // Verify file exists in job
+    const fileRecord = db
+      .query("SELECT * FROM file_names WHERE job_id = ? AND output_file_name = ?")
+      .get(jobId, fileName);
+
+    if (!fileRecord) {
+      set.status = 404;
+      return { error: "File not found" };
+    }
+
+    const filePath = `${outputDir}${parseInt(userId)}/${jobId}/${fileName}`;
+    const file = Bun.file(filePath);
+
+    if (!(await file.exists())) {
+      set.status = 404;
+      return { error: "File not found on disk" };
+    }
+
+    // Set appropriate headers for file download
+    set.headers["Content-Type"] = file.type || "application/octet-stream";
+    set.headers["Content-Disposition"] = `attachment; filename="${fileName}"`;
+
+    return file;
   });
