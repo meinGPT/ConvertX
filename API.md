@@ -33,6 +33,10 @@ Get all supported conversion formats and converters.
       "inputs": ["jpg", "png", "gif", ...],
       "outputs": ["jpg", "png", "webp", ...]
     },
+    "libreoffice": {
+      "inputs": ["doc", "docx", "odt", "rtf", "txt", "html", "xml", "xls", "xlsx", "ods", "csv", "tsv", "ppt", "pptx", "odp"],
+      "outputs": ["pdf", "docx", "odt", "rtf", "txt", "html", "xlsx", "ods", "csv", "pptx", "odp"]
+    },
     ...
   },
   "supportedInputs": ["jpg", "png", "mp4", "pdf", ...],
@@ -65,6 +69,18 @@ Get available conversion targets for a specific input format.
   "converterTargets": {
     "imagemagick": ["png", "webp", "pdf", "gif"],
     "vips": ["png", "webp"]
+  }
+}
+```
+
+**Example Response for Office Document:**
+```json
+{
+  "from": "docx",
+  "availableTargets": ["pdf", "odt", "rtf", "txt", "html"],
+  "converterTargets": {
+    "libreoffice": ["pdf", "odt", "rtf", "txt", "html"],
+    "pandoc": ["pdf", "html", "rtf", "txt"]
   }
 }
 ```
@@ -212,6 +228,58 @@ curl -b cookies.txt \
   http://localhost:3000/api/convert
 ```
 
+## Office Document Conversion
+
+ConvertX now supports comprehensive office document conversion through LibreOffice. This enables conversion between various document, spreadsheet, and presentation formats.
+
+### Supported Office Formats
+
+**Documents:**
+- Input: `doc`, `docx`, `odt`, `rtf`, `txt`, `html`, `xml`
+- Output: `pdf`, `docx`, `odt`, `rtf`, `txt`, `html`
+
+**Spreadsheets:**
+- Input: `xls`, `xlsx`, `ods`, `csv`, `tsv`
+- Output: `pdf`, `xlsx`, `ods`, `csv`, `html`
+
+**Presentations:**
+- Input: `ppt`, `pptx`, `odp`
+- Output: `pdf`, `pptx`, `odp`, `html`
+
+### Example: Converting Office Documents
+
+```bash
+# Convert DOCX to PDF
+curl -u "email@example.com:password" \
+  -X POST -H "Content-Type: application/json" \
+  -d '{
+    "files": [{"name": "document.docx", "content": "base64-content"}],
+    "convertTo": "pdf",
+    "converterName": "libreoffice"
+  }' \
+  http://localhost:3000/api/convert
+
+# Convert XLSX to CSV
+curl -u "email@example.com:password" \
+  -X POST -H "Content-Type: application/json" \
+  -d '{
+    "files": [{"name": "spreadsheet.xlsx", "content": "base64-content"}],
+    "convertTo": "csv",
+    "converterName": "libreoffice"
+  }' \
+  http://localhost:3000/api/convert
+
+# Convert PPT to PDF
+curl -u "email@example.com:password" \
+  -X POST -H "Content-Type: application/json" \
+  -d '{
+    "files": [{"name": "presentation.ppt", "content": "base64-content"}],
+    "convertTo": "pdf",
+    "converterName": "libreoffice"
+  }' \
+  http://localhost:3000/api/convert
+```
+
 ## Notes
 
 - Files must be base64 encoded in the request body
@@ -219,3 +287,4 @@ curl -b cookies.txt \
 - Conversion jobs are tracked in the database and can be queried later
 - All file paths are sanitized for security
 - The API reuses the existing converter system from the web interface
+- LibreOffice conversions run in headless mode for optimal performance

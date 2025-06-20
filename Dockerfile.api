@@ -1,8 +1,18 @@
 # Use the existing ConvertX image and add our changes
 FROM ghcr.io/c4illin/convertx:latest
 
+# Install LibreOffice for office document conversion
+RUN apt-get update && apt-get install -y \
+  libreoffice \
+  libreoffice-java-common \
+  default-jre-headless \
+  --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
+
 # Copy our modified source files directly
 COPY src/pages/api.tsx /app/src/pages/api.tsx
 COPY src/index.tsx /app/src/index.tsx
+COPY src/converters/libreoffice.ts /app/src/converters/libreoffice.ts
+COPY src/converters/main.ts /app/src/converters/main.ts
 
 # The base image already has all runtime dependencies and proper entrypoint
