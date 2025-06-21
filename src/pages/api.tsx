@@ -265,10 +265,14 @@ export const api = new Elysia({ prefix: "/api" })
           const fileTypeOrig = fileName.split(".").pop() ?? "";
           const fileType = normalizeFiletype(fileTypeOrig);
           const newFileExt = normalizeOutputFiletype(normalizedConvertTo);
-          const newFileName = fileName.replace(
+          
+          // Generate a secure filename with UUID prefix
+          const fileUuid = crypto.randomUUID();
+          const baseFileName = fileName.replace(
             new RegExp(`${fileTypeOrig}(?!.*${fileTypeOrig})`),
             newFileExt,
           );
+          const newFileName = `${fileUuid}_${baseFileName}`;
           const targetPath = `${userOutputDir}${newFileName}`;
 
           console.log(`[API Convert] Converting ${fileName} from ${fileType} to ${normalizedConvertTo}`);
@@ -283,8 +287,9 @@ export const api = new Elysia({ prefix: "/api" })
 
           if (conversionResult === "Done") {
             console.log(`[API Convert] Successfully converted ${fileName}`);
-            // Use the new download endpoint that doesn't expose user ID
-            const downloadUrl = `${baseUrl}/api/job/${jobIdValue}/download/${newFileName}`;
+            
+            // The filename already contains a UUID, making the download URL unguessable
+            const downloadUrl = `${baseUrl}/api/job/${jobIdValue}/download/${encodeURIComponent(newFileName)}`;
             results.push({
               fileName,
               status: "completed",
