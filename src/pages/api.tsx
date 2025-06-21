@@ -175,9 +175,17 @@ export const api = new Elysia({ prefix: "/api" })
       const { files, convertTo, converterName } = body;
       console.log(`[API Convert] User ${user.id} converting ${files.length} files to ${convertTo}${converterName ? ` using ${converterName}` : ''}`);
       
-      // Automatically determine base URL from request
+      // Automatically determine base URL from request, respecting proxy headers
+      const forwardedProto = request.headers.get('x-forwarded-proto');
+      const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
       const url = new URL(request.url);
-      const baseUrl = `${url.protocol}//${url.host}`;
+      
+      // Use forwarded headers if available, otherwise fall back to request URL
+      const protocol = forwardedProto || url.protocol.replace(':', '');
+      const host = forwardedHost || url.host;
+      const baseUrl = `${protocol}://${host}`;
+      
+      console.log(`[API Convert] Base URL determined: ${baseUrl} (forwarded: proto=${forwardedProto}, host=${forwardedHost})`);
 
       if (!files || !Array.isArray(files) || files.length === 0) {
         set.status = 400;
