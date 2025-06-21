@@ -417,18 +417,22 @@ export const api = new Elysia({ prefix: "/api" })
       return { error: "Job not found" };
     }
 
+    // Decode the filename from URL encoding
+    const decodedFileName = decodeURIComponent(fileName);
+    console.log(`[API Download] Decoded filename: ${decodedFileName}`);
+
     // Verify file exists in job
     const fileRecord = db
       .query("SELECT * FROM file_names WHERE job_id = ? AND output_file_name = ?")
-      .get(jobId, fileName);
+      .get(jobId, decodedFileName);
 
     if (!fileRecord) {
-      console.error(`[API Download] File ${fileName} not found in job ${jobId}`);
+      console.error(`[API Download] File ${decodedFileName} not found in job ${jobId}`);
       set.status = 404;
       return { error: "File not found" };
     }
 
-    const filePath = `${outputDir}${parseInt(userId)}/${jobId}/${fileName}`;
+    const filePath = `${outputDir}${parseInt(userId)}/${jobId}/${decodedFileName}`;
     const file = Bun.file(filePath);
 
     if (!(await file.exists())) {
@@ -439,7 +443,7 @@ export const api = new Elysia({ prefix: "/api" })
 
     // Set appropriate headers for file download
     set.headers["Content-Type"] = file.type || "application/octet-stream";
-    set.headers["Content-Disposition"] = `attachment; filename="${fileName}"`;
+    set.headers["Content-Disposition"] = `attachment; filename="${decodedFileName}"`;
 
     console.log(`[API Download] Serving file: ${filePath} (${file.size} bytes)`);
     return file;
@@ -467,18 +471,22 @@ export const api = new Elysia({ prefix: "/api" })
       return { error: "Job not found or access denied" };
     }
 
+    // Decode the filename from URL encoding
+    const decodedFileName = decodeURIComponent(fileName);
+    console.log(`[API Download] Decoded filename: ${decodedFileName}`);
+    
     // Verify file exists in job
     const fileRecord = db
       .query("SELECT * FROM file_names WHERE job_id = ? AND output_file_name = ?")
-      .get(jobId, fileName);
+      .get(jobId, decodedFileName);
 
     if (!fileRecord) {
-      console.error(`[API Download] File ${fileName} not found in job ${jobId}`);
+      console.error(`[API Download] File ${decodedFileName} not found in job ${jobId}`);
       set.status = 404;
       return { error: "File not found" };
     }
 
-    const filePath = `${outputDir}${parseInt(user.id)}/${jobId}/${fileName}`;
+    const filePath = `${outputDir}${parseInt(user.id)}/${jobId}/${decodedFileName}`;
     const file = Bun.file(filePath);
 
     if (!(await file.exists())) {
@@ -489,7 +497,7 @@ export const api = new Elysia({ prefix: "/api" })
 
     // Set appropriate headers for file download
     set.headers["Content-Type"] = file.type || "application/octet-stream";
-    set.headers["Content-Disposition"] = `attachment; filename="${fileName}"`;
+    set.headers["Content-Disposition"] = `attachment; filename="${decodedFileName}"`;
 
     console.log(`[API Download] Serving file: ${filePath} (${file.size} bytes)`);
     return file;
