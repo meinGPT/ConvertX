@@ -283,7 +283,8 @@ export const api = new Elysia({ prefix: "/api" })
 
           if (conversionResult === "Done") {
             console.log(`[API Convert] Successfully converted ${fileName}`);
-            const downloadUrl = `${baseUrl}/api/download/${parseInt(user.id)}/${jobIdValue}/${newFileName}`;
+            // Use the new download endpoint that doesn't expose user ID
+            const downloadUrl = `${baseUrl}/api/job/${jobIdValue}/download/${newFileName}`;
             results.push({
               fileName,
               status: "completed",
@@ -417,6 +418,56 @@ export const api = new Elysia({ prefix: "/api" })
     console.log(`[API Download] Serving file: ${filePath} (${file.size} bytes)`);
     return file;
   })
+  // Alternative download endpoint that doesn't expose user ID
+  .get("/job/:jobId/download/:fileName", async ({ jwt, cookie: { auth }, headers, set, params }) => {
+    const { jobId, fileName } = params;
+    console.log(`[API Download] Request for file via job endpoint: job=${jobId}, file=${fileName}`);
+    
+    const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
+    if (!user) {
+      console.log("[API Download] Authentication failed");
+      return { error: "Unauthorized" };
+    }
+    
+    // Verify job belongs to authenticated user
+    const job = db
+      .query("SELECT * FROM jobs WHERE id = ? AND user_id = ?")
+      .as(Jobs)
+      .get(jobId, parseInt(user.id));
+
+    if (!job) {
+      console.error(`[API Download] Job ${jobId} not found or not owned by user ${user.id}`);
+      set.status = 404;
+      return { error: "Job not found or access denied" };
+    }
+
+    // Verify file exists in job
+    const fileRecord = db
+      .query("SELECT * FROM file_names WHERE job_id = ? AND output_file_name = ?")
+      .get(jobId, fileName);
+
+    if (!fileRecord) {
+      console.error(`[API Download] File ${fileName} not found in job ${jobId}`);
+      set.status = 404;
+      return { error: "File not found" };
+    }
+
+    const filePath = `${outputDir}${parseInt(user.id)}/${jobId}/${fileName}`;
+    const file = Bun.file(filePath);
+
+    if (!(await file.exists())) {
+      console.error(`[API Download] File not found on disk: ${filePath}`);
+      set.status = 404;
+      return { error: "File not found on disk" };
+    }
+
+    // Set appropriate headers for file download
+    set.headers["Content-Type"] = file.type || "application/octet-stream";
+    set.headers["Content-Disposition"] = `attachment; filename="${fileName}"`;
+
+    console.log(`[API Download] Serving file: ${filePath} (${file.size} bytes)`);
+    return file;
+  })
   // Catch-all for unmatched API routes
   .all("/*", ({ request, set }) => {
     console.error(`[API] Unmatched route: ${request.method} ${request.url}`);
@@ -430,7 +481,8 @@ export const api = new Elysia({ prefix: "/api" })
         "GET /api/formats/:from", 
         "POST /api/convert",
         "GET /api/job/:jobId",
-        "GET /api/download/:userId/:jobId/:fileName"
+        "GET /api/download/:userId/:jobId/:fileName",
+        "GET /api/job/:jobId/download/:fileName"
       ]
     };
   });

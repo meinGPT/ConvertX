@@ -126,13 +126,13 @@ Convert files to a target format. Files can be provided either as base64-encoded
       "fileName": "example.jpg",
       "status": "completed",
       "outputFileName": "example.png",
-      "downloadUrl": "https://api.example.com/api/download/1/123/example.png"
+      "downloadUrl": "https://api.example.com/api/job/123/download/example.png"
     },
     {
       "fileName": "document.pdf",
       "status": "completed", 
       "outputFileName": "document.png",
-      "downloadUrl": "https://api.example.com/api/download/1/123/document.png"
+      "downloadUrl": "https://api.example.com/api/job/123/download/document.png"
     }
   ]
 }
@@ -185,7 +185,7 @@ Get status and details of a conversion job.
 
 ### GET /api/download/:userId/:jobId/:fileName
 
-Download a converted file.
+Download a converted file (legacy endpoint - requires user ID match).
 
 **Parameters:**
 - `userId` - ID of the user who owns the file
@@ -200,6 +200,22 @@ Download a converted file.
 - `401` - Unauthorized
 - `403` - Access denied (file belongs to different user)
 - `404` - Job or file not found
+
+### GET /api/job/:jobId/download/:fileName
+
+Download a converted file (recommended endpoint).
+
+**Parameters:**
+- `jobId` - ID of the conversion job
+- `fileName` - Name of the output file
+
+**Response:**
+- Binary file download with appropriate Content-Type header
+- Content-Disposition header for proper filename
+
+**Error Responses:**
+- `401` - Unauthorized
+- `404` - Job not found or access denied
 
 ## Error Codes
 
@@ -242,7 +258,7 @@ curl -u "email@example.com:password" \
 # Download converted file
 curl -u "email@example.com:password" \
   -o converted.png \
-  http://localhost:3000/api/download/1/123/test.png
+  http://localhost:3000/api/job/123/download/test.png
 
 # Check job status
 curl -u "email@example.com:password" \
