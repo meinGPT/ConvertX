@@ -6,44 +6,57 @@ import { getAllInputs, getAllTargets, getPossibleTargets, mainConverter } from "
 import db from "../db/db";
 import { Jobs, User } from "../db/types";
 import { normalizeFiletype, normalizeOutputFiletype } from "../helpers/normalizeFiletype";
-import { userService } from "./user";
 
-// Middleware to handle both Basic Auth and JWT authentication
-async function authenticateUser({ jwt, cookie: { auth }, headers, set }: any) {
-  // First try JWT cookie auth
-  if (auth?.value) {
-    const jwtUser = await jwt.verify(auth.value);
-    if (jwtUser) {
-      return { id: jwtUser.id };
-    }
+// Basic Auth only authentication
+async function authenticateUser({ headers, set }: any) {
+  const authHeader = headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith("Basic ")) {
+    console.log("[Auth] No Basic Auth header provided");
+    set.status = 401;
+    set.headers["WWW-Authenticate"] = 'Basic realm="ConvertX API"';
+    return null;
   }
 
-  // Then try Basic Auth
-  const authHeader = headers.authorization;
-  if (authHeader && authHeader.startsWith("Basic ")) {
+  try {
     const base64Credentials = authHeader.substring(6);
     const credentials = Buffer.from(base64Credentials, "base64").toString("utf8");
     const [email, password] = credentials.split(":");
 
-    if (email && password) {
-      const user = db.query("SELECT * FROM users WHERE email = ?").as(User).get(email);
-      if (user) {
-        const validPassword = await Bun.password.verify(password, user.password);
-        if (validPassword) {
-          return { id: String(user.id) };
-        }
-      }
+    if (!email || !password) {
+      console.log("[Auth] Invalid Basic Auth format");
+      set.status = 401;
+      set.headers["WWW-Authenticate"] = 'Basic realm="ConvertX API"';
+      return null;
     }
-  }
 
-  // No valid auth found
-  set.status = 401;
-  set.headers["WWW-Authenticate"] = 'Basic realm="ConvertX API"';
-  return null;
+    const user = db.query("SELECT * FROM users WHERE email = ?").as(User).get(email);
+    if (!user) {
+      console.log("[Auth] User not found:", email);
+      set.status = 401;
+      set.headers["WWW-Authenticate"] = 'Basic realm="ConvertX API"';
+      return null;
+    }
+
+    const validPassword = await Bun.password.verify(password, user.password);
+    if (!validPassword) {
+      console.log("[Auth] Invalid password for user:", email);
+      set.status = 401;
+      set.headers["WWW-Authenticate"] = 'Basic realm="ConvertX API"';
+      return null;
+    }
+
+    console.log("[Auth] Basic Auth successful for user:", email);
+    return { id: String(user.id) };
+  } catch (error) {
+    console.error("[Auth] Error during authentication:", error);
+    set.status = 401;
+    set.headers["WWW-Authenticate"] = 'Basic realm="ConvertX API"';
+    return null;
+  }
 }
 
 export const api = new Elysia({ prefix: "/api" })
-  .use(userService)
   // Add error handling
   .onError(({ code, error, set, request }) => {
     console.error(`[API Error] ${request.method} ${request.url}:`, {
@@ -68,8 +81,8 @@ export const api = new Elysia({ prefix: "/api" })
   .get("/test", () => {
     return { message: "API is working!" };
   })
-  .get("/formats", async ({ jwt, cookie: { auth }, headers, set }) => {
-    const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
+  .get("/formats", async ({ headers, set }) => {
+    const user = await authenticateUser({ headers, set });
     if (!user) {
       return { error: "Unauthorized" };
     }
@@ -117,8 +130,8 @@ export const api = new Elysia({ prefix: "/api" })
       outputsByConverter: allOutputs,
     };
   })
-  .get("/formats/:from", async ({ jwt, cookie: { auth }, headers, set, params: { from } }) => {
-    const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
+  .get("/formats/:from", async ({ headers, set, params: { from } }) => {
+    const user = await authenticateUser({ headers, set });
     if (!user) {
       return { error: "Unauthorized" };
     }
@@ -150,10 +163,10 @@ export const api = new Elysia({ prefix: "/api" })
   })
   .post(
     "/convert",
-    async ({ body, jwt, cookie: { auth }, headers, set, request }) => {
+    async ({ body, headers, set, request }) => {
       console.log(`[API Convert] Request from ${request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'}`);
       
-      const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
+      const user = await authenticateUser({ headers, set });
       if (!user) {
         console.log("[API Convert] Authentication failed");
         return { error: "Unauthorized" };
@@ -344,8 +357,8 @@ export const api = new Elysia({ prefix: "/api" })
       }),
     },
   )
-  .get("/job/:jobId", async ({ jwt, cookie: { auth }, headers, set, params: { jobId } }) => {
-    const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
+  .get("/job/:jobId", async ({ headers, set, params: { jobId } }) => {
+    const user = await authenticateUser({ headers, set });
     if (!user) {
       return { error: "Unauthorized" };
     }
@@ -367,11 +380,11 @@ export const api = new Elysia({ prefix: "/api" })
       files,
     };
   })
-  .get("/download/:userId/:jobId/:fileName", async ({ jwt, cookie: { auth }, headers, set, params }) => {
+  .get("/download/:userId/:jobId/:fileName", async ({ headers, set, params }) => {
     const { userId, jobId, fileName } = params;
     console.log(`[API Download] Request for file: user=${userId}, job=${jobId}, file=${fileName}`);
     
-    const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
+    const user = await authenticateUser({ headers, set });
     if (!user) {
       console.log("[API Download] Authentication failed");
       return { error: "Unauthorized" };
@@ -424,11 +437,11 @@ export const api = new Elysia({ prefix: "/api" })
     return file;
   })
   // Alternative download endpoint that doesn't expose user ID
-  .get("/job/:jobId/download/:fileName", async ({ jwt, cookie: { auth }, headers, set, params }) => {
+  .get("/job/:jobId/download/:fileName", async ({ headers, set, params }) => {
     const { jobId, fileName } = params;
     console.log(`[API Download] Request for file via job endpoint: job=${jobId}, file=${fileName}`);
     
-    const user = await authenticateUser({ jwt, cookie: { auth }, headers, set });
+    const user = await authenticateUser({ headers, set });
     if (!user) {
       console.log("[API Download] Authentication failed");
       return { error: "Unauthorized" };
